@@ -1,63 +1,130 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>名簿登録...</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>登録フォーム</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      max-width: 480px;
-      margin: 40px auto;
-      padding: 0 16px;
-      text-align: center;
-      color: #333;
-    }
+    body { font-family: sans-serif; max-width: 480px; margin: 24px auto; padding: 0 16px; }
+    .profile { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding: 12px; background: #f5f5f5; border-radius: 8px; }
+    .profile img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+    .field { margin-bottom: 14px; }
+    label { display: block; font-weight: bold; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+    button { width: 100%; padding: 12px; font-size: 16px; background: #06c755; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    button:disabled { background: #aaa; }
+    #status { margin-top: 12px; font-size: 14px; }
   </style>
 </head>
 <body>
-  <p id="status">LINE名簿で誰だかわかるようにしましょう</p>
+  <div id="loading">読み込み中...</div>
+
+  <form id="form" style="display:none;">
+    <div class="profile">
+      <img id="lineIcon" src="" alt="LINEアイコン" />
+      <div>
+        <div style="font-size:12px;color:#666;">LINE表示名</div>
+        <div id="lineName" style="font-weight:bold;"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="realName">本名</label>
+      <input type="text" id="realName" name="realName" required placeholder="山田 太郎" />
+    </div>
+
+    <div class="field">
+      <label for="furigana">ふりがな</label>
+      <input type="text" id="furigana" name="furigana" required placeholder="やまだ たろう" />
+    </div>
+
+    <div class="field">
+      <label for="className">クラス</label>
+      <select id="className" name="className" required>
+        <option value="">選択してください</option>
+        <option value="1組">1組</option>
+        <option value="2組">2組</option>
+        <option value="3組">3組</option>
+      </select>
+    </div>
+
+    <button type="submit" id="submitBtn">保存する</button>
+    <div id="status"></div>
+  </form>
 
   <script>
-    const LIFF_ID = "2012830118-alouzjzn";
-    // 「事前入力済みリンクを取得」で作ったURLの ? より前の部分（.../viewform）
-    const FORM_BASE_URL = " https://docs.google.com/forms/d/e/1FAIpQLSfk52QInkA8USxpIH3RX9r0jTmWKyTmTzvdL-rQMXKQEanv8A/viewform?usp=pp_url";
-    // 「LINE表示名」質問の entry.番号 に書き換える
-    const ENTRY_DISPLAY_NAME = "entry.354118499";
-    // 「LINEユーザーID」質問も作る場合はその entry.番号 を設定（使わない場合は空文字 "" でOK）
-    const ENTRY_USER_ID = "";
+    const LIFF_ID = '2012845899-vFjoQvJa';
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbyh7SnOzJfAQCayg_SRgoZB4Bo7ETkruTXVCH5Bg24N04gYIFLdgt5fvoHQqI70Eeo_Bw/exec';
 
-    async function init() {
-      try {
-        await liff.init({ liffId: LIFF_ID });
+    let currentProfile = null;
 
-        if (!liff.isLoggedIn()) {
-          liff.login();
-          return;
-        }
-
-        const profile = await liff.getProfile();
-
-        const params = new URLSearchParams({
-          usp: "pp_url",
-          [ENTRY_DISPLAY_NAME]: profile.displayName
-        });
-
-        if (ENTRY_USER_ID) {
-          params.set(ENTRY_USER_ID, profile.userId);
-        }
-
-        const targetUrl = `${FORM_BASE_URL}?${params.toString()}`;
-        location.replace(targetUrl);
-      } catch (err) {
-        console.error(err);
-        document.getElementById("status").textContent =
-          "LINE情報の取得に失敗しました。画面を再読み込みしてください。";
+    async function main() {
+      await liff.init({ liffId: LIFF_ID });
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
       }
+
+      currentProfile = await liff.getProfile();
+      document.getElementById('lineName').textContent = currentProfile.displayName;
+      if (currentProfile.pictureUrl) {
+        document.getElementById('lineIcon').src = currentProfile.pictureUrl;
+      }
+
+      const res = await fetch(`${GAS_URL}?userId=${encodeURIComponent(currentProfile.userId)}`);
+      const data = await res.json();
+
+      if (data.found && data.record) {
+        document.getElementById('realName').value = data.record.realName || '';
+        document.getElementById('furigana').value = data.record.furigana || '';
+        document.getElementById('className').value = data.record.className || '';
+        document.getElementById('submitBtn').textContent = '内容を更新する';
+      }
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('form').style.display = 'block';
     }
 
-    init();
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      status.textContent = '保存しています...';
+
+      const body = {
+        userId: currentProfile.userId,
+        lineName: currentProfile.displayName,
+        pictureUrl: currentProfile.pictureUrl || '',
+        realName: document.getElementById('realName').value.trim(),
+        furigana: document.getElementById('furigana').value.trim(),
+        className: document.getElementById('className').value
+      };
+
+      try {
+        const res = await fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(body)
+        });
+        const result = await res.json();
+        if (result.status === 'ok') {
+          status.textContent = result.updated ? '登録内容を更新しました。' : '新規登録しました。';
+          btn.textContent = '内容を更新する';
+        } else {
+          status.textContent = '保存に失敗しました。';
+        }
+      } catch (err) {
+        status.textContent = '通信エラーが発生しました。';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    main().catch((err) => {
+      document.getElementById('loading').textContent = '初期化エラー: ' + err.message;
+    });
   </script>
 </body>
 </html>
